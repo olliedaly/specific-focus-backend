@@ -1,0 +1,6 @@
+fastapi>=0.100.0
+uvicorn[standard]>=0.20.0
+python-dotenv>=1.0.0
+google-generativeai>=0.5.0
+# httpx is usually a sub-dependency of the above, but can be listed explicitly
+httpx>=0.25.0 

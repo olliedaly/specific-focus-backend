@@ -16,7 +16,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of your application code into the container at /app
 COPY backend_gemini_app.py .
-COPY .env .env # Optional: if you want to include a default .env for Cloud Run, though env vars are better
 
 # Change ownership of the app directory to the non-root user
 RUN chown -R appuser:appuser /app

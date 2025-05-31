@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import google.generativeai as genai
@@ -6,6 +6,8 @@ import uvicorn
 import os
 from dotenv import load_dotenv
 import logging
+import requests
+from google.auth.exceptions import DefaultCredentialsError
 
 # --- Basic Configuration ---
 load_dotenv()
@@ -56,6 +58,59 @@ else:
     except Exception as e:
         logger.error(f"Error configuring Google Gemini API: {e}")
 
+# --- OAuth Token Validation ---
+CHROME_EXTENSION_OAUTH_CLIENT_ID = "1056415616503-jagk9ejnakcq643so5dsfvsoagjppfac.apps.googleusercontent.com"
+
+def validate_chrome_extension_token(access_token):
+    if not access_token:
+        # Return None for user_id, error message, and status code
+        return None, "No access token provided", 401 
+    
+    token_info_url = f"https://www.googleapis.com/oauth2/v3/tokeninfo?access_token={access_token}"
+    try:
+        response = requests.get(token_info_url)
+        
+        if response.status_code != 200:
+             error_detail = "Unknown token validation error"
+             try:
+                 error_json = response.json()
+                 error_detail = error_json.get('error_description', error_json.get('error', response.text))
+             except ValueError: # Not a JSON response
+                 error_detail = response.text
+             logger.warning(f"Token validation failed with status {response.status_code}: {error_detail}")
+             return None, f"Token validation failed: {error_detail}", response.status_code
+
+        token_info = response.json() # Should be safe now after status_code check
+
+        # 'error' field in a 200 OK response is unusual but check just in case
+        if 'error' in token_info: 
+            error_msg = f"Token validation error: {token_info.get('error_description', token_info['error'])}"
+            logger.warning(error_msg)
+            return None, error_msg, 401
+
+        if token_info.get('aud') != CHROME_EXTENSION_OAUTH_CLIENT_ID:
+            logger.warning(f"Token audience mismatch. Expected: {CHROME_EXTENSION_OAUTH_CLIENT_ID}, Got: {token_info.get('aud')}")
+            return None, "Token audience mismatch. Token was not intended for this application.", 403 # Forbidden
+        
+        # Check for necessary scopes if your backend relies on them
+        # required_scopes = {"email", "profile"} # From your manifest
+        # token_scopes = set(token_info.get('scope', '').split())
+        # if not required_scopes.issubset(token_scopes):
+        #     logger.warning(f"Token missing required scopes. Expected: {required_scopes}, Got: {token_scopes}")
+        #     return None, "Token does not have the required scopes.", 403
+
+        logger.info(f"Token validated successfully for email: {token_info.get('email')}, user_id: {token_info.get('sub')}")
+        return token_info.get('sub'), None, 200 # Return user_id (sub), no error, success status
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Network error during token validation: {e}")
+        return None, f"Network error during token validation: {e}", 503 # Service Unavailable
+    except ValueError as e: # Handles JSON decoding errors if response is not JSON
+        logger.error(f"JSON decoding error during token validation: {e}. Response text: {response.text if 'response' in locals() else 'N/A'}")
+        return None, "Error decoding token validation response.", 500
+    except Exception as e:
+        logger.error(f"An unexpected error occurred during token validation: {e}", exc_info=True)
+        return None, f"An unexpected error occurred during token validation: {e}", 500
 
 MODEL_NAME = "gemini-2.0-flash-lite"
 
@@ -115,12 +170,26 @@ def build_gemini_prompt(data: PageClassificationData) -> str:
 
 # --- API Endpoint ---
 @app.post("/classify", response_model=ClassificationResponse)
-async def classify_page_relevance(data: PageClassificationData):
+async def classify_page_relevance(data: PageClassificationData, fastapi_request: Request):
     if not GEMINI_API_KEY:
         logger.error("Attempted to call /classify endpoint without GEMINI_API_KEY configured.")
         raise HTTPException(status_code=503, detail="Gemini API key not configured on server.")
 
-    logger.info(f"Received classification request for URL: {data.url}, Focus: {data.session_focus}")
+    # --- Token Validation ---
+    auth_header = fastapi_request.headers.get('Authorization')
+    access_token = None
+    if auth_header and auth_header.startswith('Bearer '):
+        access_token = auth_header.split('Bearer ')[1]
+    
+    user_id, error_message, status_code = validate_chrome_extension_token(access_token)
+
+    if error_message:
+        # Use HTTPException for FastAPI error handling
+        raise HTTPException(status_code=status_code, detail=error_message) 
+    
+    # If we reach here, token is valid. user_id contains the Google account's unique 'sub' identifier.
+    logger.info(f"Request to /classify authenticated for user_id: {user_id}. URL: {data.url}, Focus: {data.session_focus}")
+    # --- End Token Validation ---
 
     prompt = build_gemini_prompt(data)
     # logger.debug(f"Gemini Prompt:\n{prompt}") # Be cautious logging full prompt if it contains sensitive info

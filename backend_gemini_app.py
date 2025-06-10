@@ -1,5 +1,8 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import google.generativeai as genai
 import uvicorn
@@ -13,6 +16,7 @@ import asyncio
 from functools import lru_cache
 import time
 from concurrent.futures import ThreadPoolExecutor
+import stripe
 
 # --- Basic Configuration ---
 load_dotenv()
@@ -21,6 +25,20 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Focus Monitor Pro Backend", version="0.2.0")
+
+# Templates configuration
+templates = Jinja2Templates(directory="templates")
+
+# Stripe configuration
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
+STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
+
+if STRIPE_SECRET_KEY:
+    stripe.api_key = STRIPE_SECRET_KEY
+    logger.info("Stripe API configured successfully.")
+else:
+    logger.warning("STRIPE_SECRET_KEY not found. Payment features will not work.")
 
 # --- Firestore Configuration ---
 try:
@@ -379,6 +397,232 @@ async def classify_page_relevance(data: PageClassificationData, fastapi_request:
             return ClassificationResponse(assessment="Error", original_url=data.url)
 
         raise HTTPException(status_code=503, detail=f"Error communicating with Gemini API: {str(e)}")
+
+@app.get("/user-status")
+async def get_user_status(fastapi_request: Request):
+    """Get user's current status including API call count and premium status"""
+    auth_header = fastapi_request.headers.get('Authorization')
+    access_token = None
+    if auth_header and auth_header.startswith('Bearer '):
+        access_token = auth_header.split('Bearer ')[1]
+    
+    user_id, error_message, status_code = validate_chrome_extension_token_cached(access_token)
+    if error_message:
+        raise HTTPException(status_code=status_code, detail=error_message)
+    
+    user_status = get_user_status_cached(user_id)
+    
+    return {
+        "user_id": user_id,
+        "is_premium": user_status["is_premium"],
+        "api_request_count": user_status["api_request_count"],
+        "limit": FREE_API_CALL_LIMIT
+    }
+
+class SubscriptionUpdate(BaseModel):
+    purchase_token: str
+    sku: str
+    user_email: str
+
+@app.post("/update-subscription")
+async def update_subscription(data: SubscriptionUpdate, fastapi_request: Request):
+    """Update user's premium status based on Chrome Web Store purchase"""
+    auth_header = fastapi_request.headers.get('Authorization')
+    access_token = None
+    if auth_header and auth_header.startswith('Bearer '):
+        access_token = auth_header.split('Bearer ')[1]
+    
+    user_id, error_message, status_code = validate_chrome_extension_token_cached(access_token)
+    if error_message:
+        raise HTTPException(status_code=status_code, detail=error_message)
+    
+    try:
+        # In a production system, you would verify the purchase_token with Google's API
+        # For now, we'll trust the client (this should be improved for production)
+        logger.info(f"Updating subscription for user {user_id} with purchase token: {data.purchase_token[:20]}...")
+        
+        # Update user to premium status
+        user_ref = db.collection(USERS_COLLECTION).document(user_id)
+        user_ref.update({
+            "is_premium": True,
+            "subscription_sku": data.sku,
+            "purchase_token": data.purchase_token,
+            "subscription_updated_at": firestore.SERVER_TIMESTAMP
+        })
+        
+        # Invalidate cache
+        if user_id in USER_STATUS_CACHE:
+            del USER_STATUS_CACHE[user_id]
+        
+        logger.info(f"Successfully updated user {user_id} to premium status")
+        
+        return {
+            "status": "success",
+            "message": "Subscription updated successfully",
+            "is_premium": True
+        }
+        
+    except Exception as e:
+        logger.error(f"Error updating subscription for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update subscription")
+
+@app.get("/upgrade", response_class=HTMLResponse)
+async def upgrade_page(request: Request, token: str = None, user_id: str = None):
+    """Serve the upgrade page with user token"""
+    return templates.TemplateResponse("upgrade.html", {
+        "request": request,
+        "stripe_publishable_key": STRIPE_PUBLISHABLE_KEY,
+        "user_token": token,
+        "user_id": user_id
+    })
+
+class CheckoutSession(BaseModel):
+    user_id: str
+
+@app.post("/create-checkout-session")
+async def create_checkout_session(data: CheckoutSession, fastapi_request: Request):
+    """Create a Stripe checkout session"""
+    if not STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=503, detail="Payment system not configured")
+    
+    auth_header = fastapi_request.headers.get('Authorization')
+    access_token = None
+    if auth_header and auth_header.startswith('Bearer '):
+        access_token = auth_header.split('Bearer ')[1]
+    
+    user_id, error_message, status_code = validate_chrome_extension_token_cached(access_token)
+    if error_message:
+        raise HTTPException(status_code=status_code, detail=error_message)
+    
+    try:
+        # Create customer or retrieve existing
+        user_status = get_user_status_cached(user_id)
+        
+        # Get user email from token
+        token_info_url = f"https://www.googleapis.com/oauth2/v3/tokeninfo?access_token={access_token}"
+        response = requests.get(token_info_url)
+        token_info = response.json()
+        user_email = token_info.get('email')
+        
+        checkout_session = stripe.checkout.Session.create(
+            customer_email=user_email,
+            payment_method_types=['card'],
+            line_items=[{
+                'price_data': {
+                    'currency': 'usd',
+                    'product_data': {
+                        'name': 'Specific Focus Premium',
+                        'description': 'Unlimited AI-powered focus monitoring',
+                    },
+                    'unit_amount': 499,  # $4.99 in cents
+                    'recurring': {
+                        'interval': 'month'
+                    }
+                },
+                'quantity': 1,
+            }],
+            mode='subscription',
+            success_url=f'https://specific-focus-backend-1056415616503.europe-west1.run.app/payment-success?session_id={{CHECKOUT_SESSION_ID}}',
+            cancel_url=f'https://specific-focus-backend-1056415616503.europe-west1.run.app/upgrade?token={access_token}&user_id={user_id}',
+            metadata={
+                'user_id': user_id,
+                'user_email': user_email
+            }
+        )
+        
+        return {"id": checkout_session.id}
+        
+    except Exception as e:
+        logger.error(f"Error creating checkout session for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create checkout session")
+
+@app.get("/payment-success", response_class=HTMLResponse)
+async def payment_success(request: Request, session_id: str = None):
+    """Handle successful payment"""
+    return """
+    <html>
+    <head><title>Payment Successful</title></head>
+    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; text-align: center; padding: 40px;">
+        <h1 style="color: #6A8A7B;">Payment Successful!</h1>
+        <p>Your Specific Focus Premium subscription is now active.</p>
+        <p>You can close this tab and return to your extension.</p>
+        <script>
+            // Auto-close after 3 seconds
+            setTimeout(() => window.close(), 3000);
+        </script>
+    </body>
+    </html>
+    """
+
+@app.post("/stripe-webhook")
+async def stripe_webhook(request: Request):
+    """Handle Stripe webhooks for subscription events"""
+    if not STRIPE_WEBHOOK_SECRET:
+        raise HTTPException(status_code=503, detail="Webhook not configured")
+    
+    payload = await request.body()
+    sig_header = request.headers.get('stripe-signature')
+    
+    try:
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, STRIPE_WEBHOOK_SECRET
+        )
+    except ValueError as e:
+        logger.error(f"Invalid payload in webhook: {e}")
+        raise HTTPException(status_code=400, detail="Invalid payload")
+    except stripe.error.SignatureVerificationError as e:
+        logger.error(f"Invalid signature in webhook: {e}")
+        raise HTTPException(status_code=400, detail="Invalid signature")
+    
+    # Handle the event
+    if event['type'] == 'checkout.session.completed':
+        session = event['data']['object']
+        user_id = session['metadata']['user_id']
+        
+        # Update user to premium
+        try:
+            user_ref = db.collection(USERS_COLLECTION).document(user_id)
+            user_ref.update({
+                "is_premium": True,
+                "stripe_customer_id": session.get('customer'),
+                "stripe_subscription_id": session.get('subscription'),
+                "subscription_activated_at": firestore.SERVER_TIMESTAMP
+            })
+            
+            # Invalidate cache
+            if user_id in USER_STATUS_CACHE:
+                del USER_STATUS_CACHE[user_id]
+            
+            logger.info(f"Successfully activated premium for user {user_id}")
+        except Exception as e:
+            logger.error(f"Error activating premium for user {user_id}: {e}")
+    
+    elif event['type'] == 'customer.subscription.deleted':
+        # Handle subscription cancellation
+        subscription = event['data']['object']
+        customer_id = subscription['customer']
+        
+        # Find user by customer ID and deactivate premium
+        try:
+            users_query = db.collection(USERS_COLLECTION).where("stripe_customer_id", "==", customer_id).limit(1)
+            docs = users_query.stream()
+            
+            for doc in docs:
+                doc.reference.update({
+                    "is_premium": False,
+                    "subscription_cancelled_at": firestore.SERVER_TIMESTAMP
+                })
+                
+                # Invalidate cache
+                if doc.id in USER_STATUS_CACHE:
+                    del USER_STATUS_CACHE[doc.id]
+                
+                logger.info(f"Successfully deactivated premium for user {doc.id}")
+                break
+        except Exception as e:
+            logger.error(f"Error deactivating premium for customer {customer_id}: {e}")
+    
+    return {"status": "success"}
 
 @app.get("/health", status_code=200)
 async def health_check():

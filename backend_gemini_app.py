@@ -167,7 +167,7 @@ def validate_chrome_extension_token_cached(access_token):
     
     return result
 
-async def get_user_status_cached(user_id: str):
+def get_user_status_cached(user_id: str):
     """Cached version of user status lookup"""
     current_time = time.time()
     
@@ -178,7 +178,7 @@ async def get_user_status_cached(user_id: str):
             return cached_status
     
     # Fetch fresh data
-    status = await get_or_create_user_status(user_id)
+    status = get_or_create_user_status(user_id)
     
     # Cache it
     USER_STATUS_CACHE[user_id] = (status, current_time)
@@ -187,13 +187,17 @@ async def get_user_status_cached(user_id: str):
 
 def background_increment_api_count(user_status: dict):
     """Run API count increment in background"""
-    async def _increment():
+    def _increment():
         try:
-            await increment_api_call_count(user_status)
+            increment_api_call_count(user_status)
         except Exception as e:
             logger.error(f"Background API count increment failed: {e}")
     
-    asyncio.create_task(_increment())
+    # Run in thread pool since Firestore operations are blocking
+    import threading
+    thread = threading.Thread(target=_increment)
+    thread.daemon = True
+    thread.start()
 
 MODEL_NAME = "gemini-2.0-flash-lite"
 
@@ -210,15 +214,14 @@ generation_config = genai.types.GenerationConfig(
 FREE_API_CALL_LIMIT = 50
 USERS_COLLECTION = "users" # Firestore collection name
 
-async def get_or_create_user_status(user_id: str):
+def get_or_create_user_status(user_id: str):
     if not db:
         logger.error(f"Firestore client not available. Cannot process user {user_id}.")
         # Depending on policy, could raise an exception or return a default "deny"
         raise HTTPException(status_code=503, detail="Backend database service is unavailable.")
 
     user_ref = db.collection(USERS_COLLECTION).document(user_id)
-    user_doc = await user_ref.get() # Use await for async Firestore operations if using an async client or wrapper
-                                    # For standard client, use user_doc = user_ref.get()
+    user_doc = user_ref.get() # Standard Firestore client is synchronous
 
     if user_doc.exists:
         user_data = user_doc.to_dict()
@@ -236,7 +239,7 @@ async def get_or_create_user_status(user_id: str):
             "api_request_count": 0,
             "created_at": firestore.SERVER_TIMESTAMP # Good to have a creation timestamp
         }
-        await user_ref.set(new_user_data) # Use await for async
+        user_ref.set(new_user_data) # Standard Firestore client is synchronous
         return {
             "user_id": user_id,
             "is_premium": False,
@@ -244,7 +247,7 @@ async def get_or_create_user_status(user_id: str):
             "doc_ref": user_ref
         }
 
-async def increment_api_call_count(user_status: dict):
+def increment_api_call_count(user_status: dict):
     if not db:
         logger.error(f"Firestore client not available. Cannot increment count for user {user_status['user_id']}.")
         return # Or raise
@@ -252,7 +255,7 @@ async def increment_api_call_count(user_status: dict):
     user_ref = user_status["doc_ref"]
     try:
         # Atomically increment the count
-        await user_ref.update({"api_request_count": firestore.Increment(1)})
+        user_ref.update({"api_request_count": firestore.Increment(1)})
         logger.info(f"Incremented API call count for user {user_status['user_id']}.")
     except Exception as e:
         logger.error(f"Error incrementing API call count for user {user_status['user_id']}: {e}")
@@ -313,26 +316,15 @@ async def classify_page_relevance(data: PageClassificationData, fastapi_request:
     if auth_header and auth_header.startswith('Bearer '):
         access_token = auth_header.split('Bearer ')[1]
     
-    # PARALLEL PROCESSING: Run token validation and prompt building concurrently
-    async def validate_token_task():
-        return validate_chrome_extension_token_cached(access_token)
-    
-    async def build_prompt_task():
-        return build_gemini_prompt(data)
-    
-    # Start both tasks concurrently
-    token_task = asyncio.create_task(validate_token_task())
-    prompt_task = asyncio.create_task(build_prompt_task())
-    
-    # Wait for token validation
-    user_id, error_message, status_code = await token_task
+    # Validate token (cached)
+    user_id, error_message, status_code = validate_chrome_extension_token_cached(access_token)
     if error_message:
         raise HTTPException(status_code=status_code, detail=error_message)
     
     logger.info(f"Request to /classify authenticated for user_id: {user_id}. URL: {data.url}, Focus: {data.session_focus}")
     
     # Get user status (cached)
-    user_status = await get_user_status_cached(user_id)
+    user_status = get_user_status_cached(user_id)
     
     # Check limits
     if not user_status["is_premium"]:
@@ -348,8 +340,8 @@ async def classify_page_relevance(data: PageClassificationData, fastapi_request:
                 }
             )
     
-    # Get the pre-built prompt
-    prompt = await prompt_task
+    # Build prompt
+    prompt = build_gemini_prompt(data)
     
     try:
         # Use cached model instance

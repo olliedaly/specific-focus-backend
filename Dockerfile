@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of your application code into the container at /app
 COPY backend_gemini_app.py .
+COPY templates/ templates/
 
 # Change ownership of the app directory to the non-root user
 RUN chown -R appuser:appuser /app

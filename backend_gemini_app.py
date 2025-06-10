@@ -469,12 +469,189 @@ async def update_subscription(data: SubscriptionUpdate, fastapi_request: Request
 @app.get("/upgrade", response_class=HTMLResponse)
 async def upgrade_page(request: Request, token: str = None, user_id: str = None):
     """Serve the upgrade page with user token"""
-    return templates.TemplateResponse("upgrade.html", {
-        "request": request,
-        "stripe_publishable_key": STRIPE_PUBLISHABLE_KEY,
-        "user_token": token,
-        "user_id": user_id
-    })
+    try:
+        return templates.TemplateResponse("upgrade.html", {
+            "request": request,
+            "stripe_publishable_key": STRIPE_PUBLISHABLE_KEY,
+            "user_token": token,
+            "user_id": user_id
+        })
+    except Exception as e:
+        logger.error(f"Error rendering upgrade template: {e}")
+        # Fallback to inline HTML if template fails
+        return HTMLResponse(f"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Upgrade to Specific Focus Premium</title>
+            <script src="https://js.stripe.com/v3/"></script>
+            <style>
+                body {{
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    max-width: 600px;
+                    margin: 0 auto;
+                    padding: 40px 20px;
+                    background: #f8f9fa;
+                }}
+                .container {{
+                    background: white;
+                    padding: 40px;
+                    border-radius: 12px;
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+                    text-align: center;
+                }}
+                h1 {{
+                    color: #333;
+                    margin-bottom: 10px;
+                }}
+                .subtitle {{
+                    color: #666;
+                    font-size: 18px;
+                    margin-bottom: 30px;
+                }}
+                .price {{
+                    font-size: 48px;
+                    color: #6A8A7B;
+                    font-weight: bold;
+                    margin: 20px 0;
+                }}
+                .price-detail {{
+                    color: #666;
+                    margin-bottom: 30px;
+                }}
+                .features {{
+                    text-align: left;
+                    margin: 30px 0;
+                    padding: 20px;
+                    background: #f8f9fa;
+                    border-radius: 8px;
+                }}
+                .feature {{
+                    margin: 10px 0;
+                    display: flex;
+                    align-items: center;
+                }}
+                .feature::before {{
+                    content: "✓";
+                    color: #6A8A7B;
+                    font-weight: bold;
+                    margin-right: 10px;
+                }}
+                #checkout-button {{
+                    background: #6A8A7B;
+                    color: white;
+                    border: none;
+                    padding: 15px 40px;
+                    font-size: 18px;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    margin-top: 20px;
+                    transition: background 0.2s;
+                }}
+                #checkout-button:hover {{
+                    background: #597567;
+                }}
+                #checkout-button:disabled {{
+                    background: #ccc;
+                    cursor: not-allowed;
+                }}
+                .error {{
+                    color: #d32f2f;
+                    margin-top: 20px;
+                }}
+                .loading {{
+                    display: none;
+                    margin-top: 20px;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>Upgrade to Premium</h1>
+                <p class="subtitle">Unlock unlimited AI-powered focus monitoring</p>
+                
+                <div class="price">$4.99</div>
+                <div class="price-detail">per month</div>
+                
+                <div class="features">
+                    <div class="feature">Unlimited AI classifications per month</div>
+                    <div class="feature">Priority support</div>
+                    <div class="feature">Advanced analytics (coming soon)</div>
+                    <div class="feature">No daily usage limits</div>
+                </div>
+                
+                <button id="checkout-button">Start Premium Subscription</button>
+                
+                <div id="loading" class="loading">
+                    Processing your payment...
+                </div>
+                
+                <div id="error-message" class="error"></div>
+                
+                <p style="font-size: 12px; color: #999; margin-top: 30px;">
+                    Cancel anytime from your extension settings. Secure payments powered by Stripe.
+                </p>
+            </div>
+
+            <script>
+                const userToken = '{token or ""}';
+                const userId = '{user_id or ""}';
+                
+                if (!userToken || !userId || userToken === 'None' || userId === 'None') {{
+                    document.getElementById('error-message').textContent = 'Invalid access. Please try again from your extension.';
+                    document.getElementById('checkout-button').disabled = true;
+                }}
+
+                const stripe = Stripe('{STRIPE_PUBLISHABLE_KEY or ""}');
+                
+                document.getElementById('checkout-button').addEventListener('click', async () => {{
+                    const button = document.getElementById('checkout-button');
+                    const loading = document.getElementById('loading');
+                    const errorDiv = document.getElementById('error-message');
+                    
+                    button.disabled = true;
+                    loading.style.display = 'block';
+                    errorDiv.textContent = '';
+                    
+                    try {{
+                        const response = await fetch('/create-checkout-session', {{
+                            method: 'POST',
+                            headers: {{
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${{userToken}}`
+                            }},
+                            body: JSON.stringify({{
+                                user_id: userId
+                            }})
+                        }});
+                        
+                        if (!response.ok) {{
+                            throw new Error('Failed to create checkout session');
+                        }}
+                        
+                        const session = await response.json();
+                        
+                        const result = await stripe.redirectToCheckout({{
+                            sessionId: session.id
+                        }});
+                        
+                        if (result.error) {{
+                            throw new Error(result.error.message);
+                        }}
+                        
+                    }} catch (error) {{
+                        console.error('Payment error:', error);
+                        errorDiv.textContent = error.message || 'Payment failed. Please try again.';
+                        button.disabled = false;
+                        loading.style.display = 'none';
+                    }}
+                }});
+            </script>
+        </body>
+        </html>
+        """)
 
 class CheckoutSession(BaseModel):
     user_id: str

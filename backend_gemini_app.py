@@ -56,7 +56,9 @@ except Exception as e:
 # --- CORS Configuration ---
 ALLOWED_ORIGIN_EXTENSION_ID = os.getenv("ALLOWED_ORIGIN_EXTENSION_ID")
 
-origins = []
+origins = [
+    "https://olliedaly.github.io" # Allow the upgrade page to make requests
+]
 # Development mode: Allow all if ID is not set or explicitly "*"
 # In a real production environment, you'd remove this permissive block.
 DEVELOPMENT_MODE_ALLOW_ALL_ORIGINS = os.getenv("DEVELOPMENT_MODE_ALLOW_ALL_ORIGINS", "false").lower() == "true"
@@ -77,10 +79,10 @@ else:
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins if origins else [], # Pass the list of origins; empty list blocks all.
+    allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["POST"],
-    allow_headers=["Content-Type"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 # --- Google Gemini Configuration ---

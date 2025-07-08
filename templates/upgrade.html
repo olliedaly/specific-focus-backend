@@ -3,236 +3,173 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Upgrade to Specific Focus Pro</title>
+    <title>Upgrade to Specific Focus Premium</title>
     <script src="https://js.stripe.com/v3/"></script>
     <style>
-        :root {
-            --rui-bg-primary: #F7F5F2;
-            --rui-bg-card: #FFFFFF;
-            --rui-text-primary: #3A2F28;
-            --rui-text-secondary: #7A6B60;
-            --rui-accent-green: #6A8A7B;
-            --rui-accent-green-hover: #597567;
-            --rui-accent-green-text: #FFFFFF;
-            --rui-border-primary: #E0D8CF;
-            --font-family-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            --border-radius-md: 0.375rem; /* 6px */
-            --shadow-strong: 0 4px 12px rgba(74, 59, 49, 0.12);
-            --transition-common: 0.2s ease-in-out;
-        }
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
         body {
-            font-family: var(--font-family-main);
-            background: var(--rui-bg-primary);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-            color: var(--rui-text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            background: #f8f9fa;
         }
         .container {
-            background: var(--rui-bg-card);
-            border-radius: var(--border-radius-md);
-            box-shadow: var(--shadow-strong);
-            max-width: 450px;
-            width: 100%;
+            background: white;
             padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
             text-align: center;
-            border: 1px solid var(--rui-border-primary);
-        }
-        .logo {
-            font-size: 48px;
-            margin-bottom: 24px;
         }
         h1 {
-            font-size: 28px;
-            font-weight: 700;
-            margin-bottom: 8px;
+            color: #333;
+            margin-bottom: 10px;
         }
         .subtitle {
-            font-size: 16px;
-            color: var(--rui-text-secondary);
-            margin-bottom: 32px;
+            color: #666;
+            font-size: 18px;
+            margin-bottom: 30px;
         }
-        .plan-card {
-            background: var(--rui-bg-primary);
-            border-radius: var(--border-radius-md);
-            padding: 24px;
-            margin-bottom: 32px;
-            border: 1px solid var(--rui-border-primary);
+        .price {
+            font-size: 48px;
+            color: #6A8A7B;
+            font-weight: bold;
+            margin: 20px 0;
         }
-        .plan-name {
-            font-size: 20px;
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-        .plan-price {
-            font-size: 32px;
-            font-weight: 700;
-            color: var(--rui-accent-green);
-            margin-bottom: 16px;
-        }
-        .plan-price .period {
-            font-size: 16px;
-            color: var(--rui-text-secondary);
-            font-weight: 400;
+        .price-detail {
+            color: #666;
+            margin-bottom: 30px;
         }
         .features {
-            list-style: none;
             text-align: left;
-            margin-bottom: 24px;
+            margin: 30px 0;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
         }
-        .features li {
-            padding: 8px 0;
-            position: relative;
-            padding-left: 24px;
+        .feature {
+            margin: 10px 0;
+            display: flex;
+            align-items: center;
         }
-        .features li::before {
-            content: '✓';
-            position: absolute;
-            left: 0;
-            color: var(--rui-accent-green);
+        .feature::before {
+            content: "✓";
+            color: #6A8A7B;
             font-weight: bold;
+            margin-right: 10px;
         }
-        .upgrade-btn {
-            background: var(--rui-accent-green);
-            color: var(--rui-accent-green-text);
+        #checkout-button {
+            background: #6A8A7B;
+            color: white;
             border: none;
-            padding: 16px 32px;
-            border-radius: var(--border-radius-md);
-            font-size: 16px;
-            font-weight: 600;
+            padding: 15px 40px;
+            font-size: 18px;
+            border-radius: 8px;
             cursor: pointer;
-            width: 100%;
-            transition: background-color var(--transition-common);
+            margin-top: 20px;
+            transition: background 0.2s;
         }
-        .upgrade-btn:hover {
-            background: var(--rui-accent-green-hover);
+        #checkout-button:hover {
+            background: #597567;
         }
-        .upgrade-btn:disabled {
-            opacity: 0.6;
+        #checkout-button:disabled {
+            background: #ccc;
             cursor: not-allowed;
+        }
+        .error {
+            color: #d32f2f;
+            margin-top: 20px;
         }
         .loading {
             display: none;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            margin-top: 16px;
-        }
-        .spinner {
-            width: 20px;
-            height: 20px;
-            border: 2px solid var(--rui-border-primary);
-            border-top: 2px solid var(--rui-accent-green);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        .security-note {
-            margin-top: 24px;
-            font-size: 14px;
-            color: var(--rui-text-secondary);
+            margin-top: 20px;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="logo">🧠</div>
-        <h1>Upgrade to Specific Focus Pro</h1>
-        <p class="subtitle">Unlock unlimited focus monitoring and boost your productivity.</p>
-
-        <div class="plan-card">
-            <div class="plan-name">Specific Focus Pro</div>
-            <div class="plan-price">$4.99 <span class="period">/ month</span></div>
-            
-            <ul class="features">
-                <li>Unlimited website monitoring</li>
-                <li>No daily usage limits</li>
-                <li>Advanced focus analytics</li>
-                <li>Priority support</li>
-            </ul>
-
-            <button class="upgrade-btn" id="upgradeBtn">
-                Upgrade Now
-            </button>
+        <h1>Upgrade to Premium</h1>
+        <p class="subtitle">Unlock unlimited AI-powered focus monitoring</p>
+        
+        <div class="price">$4.99</div>
+        <div class="price-detail">per month</div>
+        
+        <div class="features">
+            <div class="feature">Unlimited AI classifications per month</div>
+            <div class="feature">Priority support</div>
+            <div class="feature">Advanced analytics (coming soon)</div>
+            <div class="feature">No daily usage limits</div>
         </div>
-
-        <div class="loading" id="loading">
-            <div class="spinner"></div>
-            <span>Redirecting to secure checkout...</span>
+        
+        <button id="checkout-button">Start Premium Subscription</button>
+        
+        <div id="loading" class="loading">
+            Processing your payment...
         </div>
-
-        <div id="error-message" class="security-note" style="color: #D47E64;"></div>
-
-        <div class="security-note">
-            <strong>🔒 Secure Payment:</strong> Powered by Stripe. Cancel anytime.
-        </div>
+        
+        <div id="error-message" class="error"></div>
+        
+        <p style="font-size: 12px; color: #999; margin-top: 30px;">
+            Cancel anytime from your extension settings. Secure payments powered by Stripe.
+        </p>
     </div>
 
     <script>
-        const stripe = Stripe('{{ stripe_publishable_key }}');
-        const upgradeBtn = document.getElementById('upgradeBtn');
-        const loading = document.getElementById('loading');
-        const errorDiv = document.getElementById('error-message');
-
+        // Get user token from URL parameters or template
         const urlParams = new URLSearchParams(window.location.search);
-        const token = urlParams.get('token');
-        const userId = urlParams.get('user_id');
-
-        if (!token || !userId) {
-            upgradeBtn.textContent = 'Invalid Access';
-            upgradeBtn.disabled = true;
-            errorDiv.textContent = 'Could not find user credentials. Please try upgrading again from the extension popup.';
-        } else {
-            upgradeBtn.addEventListener('click', async () => {
-                upgradeBtn.disabled = true;
-                loading.style.display = 'flex';
-                errorDiv.textContent = '';
-
-                try {
-                    const response = await fetch('/create-checkout-session', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${token}`
-                        },
-                        body: JSON.stringify({
-                            user_id: userId,
-                            success_url: 'https://olliedaly.github.io/specific-focus-extension/payment-success.html',
-                            cancel_url: window.location.href
-                        })
-                    });
-
-                    const session = await response.json();
-
-                    if (session.error || !response.ok) {
-                        throw new Error(session.error || 'Failed to create checkout session.');
-                    }
-
-                    const result = await stripe.redirectToCheckout({
-                        sessionId: session.id
-                    });
-
-                    if (result.error) {
-                        throw new Error(result.error.message);
-                    }
-                } catch (error) {
-                    console.error('Error:', error);
-                    errorDiv.textContent = 'Something went wrong. Please try again.';
-                    upgradeBtn.disabled = false;
-                    loading.style.display = 'none';
-                }
-            });
+        const userToken = urlParams.get('token') || '{{ user_token }}';
+        const userId = urlParams.get('user_id') || '{{ user_id }}';
+        
+        if (!userToken || !userId || userToken === 'None' || userId === 'None') {
+            document.getElementById('error-message').textContent = 'Invalid access. Please try again from your extension.';
+            document.getElementById('checkout-button').disabled = true;
         }
+
+        const stripe = Stripe('{{ stripe_publishable_key }}');
+        
+        document.getElementById('checkout-button').addEventListener('click', async () => {
+            const button = document.getElementById('checkout-button');
+            const loading = document.getElementById('loading');
+            const errorDiv = document.getElementById('error-message');
+            
+            button.disabled = true;
+            loading.style.display = 'block';
+            errorDiv.textContent = '';
+            
+            try {
+                // Create checkout session
+                const response = await fetch('/create-checkout-session', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${userToken}`
+                    },
+                    body: JSON.stringify({
+                        user_id: userId
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to create checkout session');
+                }
+                
+                const session = await response.json();
+                
+                // Redirect to Stripe Checkout
+                const result = await stripe.redirectToCheckout({
+                    sessionId: session.id
+                });
+                
+                if (result.error) {
+                    throw new Error(result.error.message);
+                }
+                
+            } catch (error) {
+                console.error('Payment error:', error);
+                errorDiv.textContent = error.message || 'Payment failed. Please try again.';
+                button.disabled = false;
+                loading.style.display = 'none';
+            }
+        });
     </script>
 </body>
 </html> 

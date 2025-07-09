@@ -689,6 +689,8 @@ async def create_checkout_session(data: CheckoutSession, fastapi_request: Reques
         token_info = response.json()
         user_email = token_info.get('email')
         
+        logger.info(f"Attempting to create checkout session for user {user_id} with Price ID: '{STRIPE_PRICE_ID}'")
+
         checkout_session = stripe.checkout.Session.create(
             customer_email=user_email,
             payment_method_types=['card'],

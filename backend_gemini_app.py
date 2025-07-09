@@ -33,12 +33,16 @@ templates = Jinja2Templates(directory="templates")
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
+STRIPE_PRICE_ID = os.getenv("STRIPE_PRICE_ID")
 
 if STRIPE_SECRET_KEY:
     stripe.api_key = STRIPE_SECRET_KEY
     logger.info("Stripe API configured successfully.")
 else:
     logger.warning("STRIPE_SECRET_KEY not found. Payment features will not work.")
+
+if not STRIPE_PRICE_ID:
+    logger.warning("STRIPE_PRICE_ID not found in environment. Payment checkout will fail.")
 
 # --- Firestore Configuration ---
 try:
@@ -657,12 +661,14 @@ async def upgrade_page(request: Request, token: str = None, user_id: str = None)
 
 class CheckoutSession(BaseModel):
     user_id: str
+    success_url: str | None = None
+    cancel_url: str | None = None
 
 @app.post("/create-checkout-session")
 async def create_checkout_session(data: CheckoutSession, fastapi_request: Request):
     """Create a Stripe checkout session"""
-    if not STRIPE_SECRET_KEY:
-        raise HTTPException(status_code=503, detail="Payment system not configured")
+    if not STRIPE_SECRET_KEY or not STRIPE_PRICE_ID:
+        raise HTTPException(status_code=503, detail="Payment system not configured on the server")
     
     auth_header = fastapi_request.headers.get('Authorization')
     access_token = None
@@ -687,22 +693,12 @@ async def create_checkout_session(data: CheckoutSession, fastapi_request: Reques
             customer_email=user_email,
             payment_method_types=['card'],
             line_items=[{
-                'price_data': {
-                    'currency': 'usd',
-                    'product_data': {
-                        'name': 'Specific Focus Premium',
-                        'description': 'Unlimited AI-powered focus monitoring',
-                    },
-                    'unit_amount': 499,  # $4.99 in cents
-                    'recurring': {
-                        'interval': 'month'
-                    }
-                },
+                'price': STRIPE_PRICE_ID,
                 'quantity': 1,
             }],
             mode='subscription',
-            success_url=f'https://specific-focus-backend-1056415616503.europe-west1.run.app/payment-success?session_id={{CHECKOUT_SESSION_ID}}',
-            cancel_url=f'https://specific-focus-backend-1056415616503.europe-west1.run.app/upgrade?token={access_token}&user_id={user_id}',
+            success_url=data.success_url or f'https://specific-focus-backend-1056415616503.europe-west1.run.app/payment-success?session_id={{CHECKOUT_SESSION_ID}}',
+            cancel_url=data.cancel_url or f'https://olliedaly.github.io/specific-focus-extension/upgrade.html?token={access_token}&user_id={user_id}',
             metadata={
                 'user_id': user_id,
                 'user_email': user_email

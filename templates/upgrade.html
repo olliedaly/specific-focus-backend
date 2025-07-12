@@ -87,29 +87,36 @@
 </head>
 <body>
     <div class="container">
-        <h1>Upgrade to Premium</h1>
-        <p class="subtitle">Unlock unlimited AI-powered focus monitoring</p>
-        
-        <div class="price">$4.99</div>
-        <div class="price-detail">per month</div>
-        
-        <div class="features">
-            <div class="feature">Unlimited AI classifications per month</div>
-            <div class="feature">Priority support</div>
-            <div class="feature">Advanced analytics (coming soon)</div>
-            <div class="feature">No daily usage limits</div>
+        <div class="logo">🧠</div>
+        <h1>Upgrade to Specific Focus Pro</h1>
+        <p class="subtitle">Unlock unlimited focus monitoring and boost your productivity.</p>
+
+        <div class="plan-card">
+            <div class="plan-name">Specific Focus Pro</div>
+            <div class="plan-price">$4.99 <span class="period">/ month</span></div>
+            
+            <ul class="features">
+                <li>Unlimited website monitoring</li>
+                <li>Advanced focus analytics</li>
+                <li>Priority support</li>
+                <li>No daily limits</li>
+                <li>Access to new features first</li>
+            </ul>
+
+            <button class="upgrade-btn" id="checkout-button">
+                Upgrade Now
+            </button>
         </div>
-        
-        <button id="checkout-button">Start Premium Subscription</button>
-        
-        <div id="loading" class="loading">
-            Processing your payment...
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <span>Processing your payment...</span>
         </div>
-        
+
         <div id="error-message" class="error"></div>
         
-        <p style="font-size: 12px; color: #999; margin-top: 30px;">
-            Cancel anytime from your extension settings. Secure payments powered by Stripe.
+        <p class="security-note">
+            <strong>🔒 Secure Payment:</strong> Powered by Stripe. Cancel anytime.
         </p>
     </div>
 
